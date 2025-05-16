@@ -1,72 +1,82 @@
-// src/server.ts
-import express, { RequestHandler } from 'express';
+// server.ts
+
+import express, { Request, Response } from 'express';
 import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import helmet from 'helmet';
+import bodyParser from 'body-parser';
+import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 
 import { ApolloServer } from '@apollo/server';
 import { expressMiddleware } from '@apollo/server/express4';
 
-import { typeDefs, resolvers } from './schemas/index.js';
-import db from './config/connection.js';
+import typeDefs from './schemas/typeDefs';
+import resolvers from './resolvers';
+import { authMiddleware } from './utils/auth';
+import {
+  validateContactForm,
+  handleContactSubmission,
+} from './middleware/contacts';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-const PORT       = Number(process.env.PORT) || 3001;
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
+const MONGODB_URI = process.env.MONGODB_URI || '';
+const GRAPHQL_PATH = '/graphql';
 
-async function start() {
-  // 1) Connect to MongoDB
-  db.on('error', console.error);
-  db.once('open', () => console.log('✅ MongoDB connected'));
-
-  // 2) Create Express app
+async function startServer() {
+  // 1. Create Express app
   const app = express();
 
-  // 3) Security headers
+  // 2. Global middleware
+  app.use(cors());
+  app.use(bodyParser.json());
+
+  // 3. Contact form REST endpoint
+  app.post(
+    '/contact',
+    validateContactForm,
+    handleContactSubmission
+  );
+
+  // 4. Initialize Apollo Server
+  const apolloServer = new ApolloServer<{ user?: any }>({
+    typeDefs,
+    resolvers,
+  });
+  await apolloServer.start();
+
+  // 5. Mount GraphQL endpoint
   app.use(
-    helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc:            ["'self'"],
-          scriptSrc:             ["'self'"],       // no eval allowed
-          objectSrc:             ["'none'"],
-          upgradeInsecureRequests: [],
-        }
-      }
+    GRAPHQL_PATH,
+    cors(),
+    bodyParser.json(),
+    expressMiddleware(apolloServer, {
+      context: async ({ req }: { req: Request }) => {
+        // You can use authMiddleware to parse JWT and attach user
+        const user = await authMiddleware(req);
+        return { user };
+      },
     })
   );
 
-  // 4) CORS & body parsing
-  app.use(cors());
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // 6. Connect to MongoDB
+  try {
+    await mongoose.connect(MONGODB_URI);
+    console.log('🗄️  Connected to MongoDB');
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err);
+    process.exit(1);
+  }
 
-  // 5) Start Apollo and apply as middleware
-  const server = new ApolloServer({ typeDefs, resolvers });
-  await server.start();
-  app.use(
-    '/graphql',
-    expressMiddleware(server) as unknown as RequestHandler
-  );
-
-  // 6) Serve React build
-  const clientDist = path.join(__dirname, '../../client/dist');
-  app.use(express.static(clientDist));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(clientDist, 'index.html'));
-  });
-
-  // 7) Listen
+  // 7. Start HTTP server
   app.listen(PORT, () => {
-    console.log(`🚀 Server ready at http://localhost:${PORT}/graphql`);
+    console.log(
+      `🚀 Server ready at http://localhost:${PORT}${GRAPHQL_PATH}`
+    );
   });
 }
 
-start().catch(err => {
-  console.error(err);
+startServer().catch((err) => {
+  console.error('Fatal error starting server:', err);
   process.exit(1);
 });
