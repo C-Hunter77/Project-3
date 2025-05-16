@@ -9,7 +9,7 @@ import App from './App';
 import { AuthProvider } from './hooks/useAuth';
 import client from './graphql/client';
 
-import './app.css';
+import './App.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
