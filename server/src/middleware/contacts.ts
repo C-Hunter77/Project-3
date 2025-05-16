@@ -1,7 +1,7 @@
 // server/src/middleware/contacts.ts
 
 import { Request, Response, NextFunction } from 'express';
-import Message from '../models/Message';
+import { Message } from '../models';
 
 /**
  * Middleware to validate contact form fields.
@@ -38,14 +38,14 @@ export const handleContactSubmission = async (
   try {
     const { name, email, message } = req.body;
 
-    const newMessage = new Message({
+    const newMsg = new Message({
       sender:    email,
       recipient: 'support@tutortrader.com', // adjust as needed
       content:   `From: ${name} <${email}>\n\n${message}`,
       sentAt:    new Date(),
     });
 
-    await newMessage.save();
+    await newMsg.save();
 
     res
       .status(201)
