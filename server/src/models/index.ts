@@ -1,4 +1,4 @@
-import User from './user.js';
-import contactRequest from './message';
+import User from './user';
+import Message from './message';
 
-export { User, contactRequest };
+export { User, Message };
