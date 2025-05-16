@@ -1,16 +1,15 @@
-// server.ts
-
+// server/src/server.ts
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
 
 import { ApolloServer } from '@apollo/server';
 import { expressMiddleware } from '@apollo/server/express4';
 
 import typeDefs from './schemas/typeDefs';
-import resolvers from './resolvers';
+import resolvers from './schemas/resolvers';
 import { authMiddleware } from './utils/auth';
 import {
   validateContactForm,
@@ -19,64 +18,47 @@ import {
 
 dotenv.config();
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
-const MONGODB_URI = process.env.MONGODB_URI || '';
-const GRAPHQL_PATH = '/graphql';
+async function start() {
+  // 1) Connect to MongoDB
+  await mongoose.connect(process.env.MONGODB_URI as string);
+  console.log('✅ MongoDB connected');
 
-async function startServer() {
-  // 1. Create Express app
+  // 2) Create Express app
   const app = express();
+  const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
 
-  // 2. Global middleware
+  // 3) Global middleware
   app.use(cors());
   app.use(bodyParser.json());
 
-  // 3. Contact form REST endpoint
+  // 4) REST endpoint for contact form
   app.post(
     '/contact',
     validateContactForm,
     handleContactSubmission
   );
 
-  // 4. Initialize Apollo Server
-  const apolloServer = new ApolloServer<{ user?: any }>({
-    typeDefs,
-    resolvers,
-  });
-  await apolloServer.start();
-
-  // 5. Mount GraphQL endpoint
+  // 5) Apollo GraphQL setup
+  const apollo = new ApolloServer({ typeDefs, resolvers });
+  await apollo.start();
   app.use(
-    GRAPHQL_PATH,
+    '/graphql',
     cors(),
     bodyParser.json(),
-    expressMiddleware(apolloServer, {
-      context: async ({ req }: { req: Request }) => {
-        // You can use authMiddleware to parse JWT and attach user
-        const user = await authMiddleware(req);
-        return { user };
-      },
+    expressMiddleware(apollo, {
+      context: async ({ req }: { req: Request }) => ({
+        user: await authMiddleware(req),
+      }),
     })
   );
 
-  // 6. Connect to MongoDB
-  try {
-    await mongoose.connect(MONGODB_URI);
-    console.log('🗄️  Connected to MongoDB');
-  } catch (err) {
-    console.error('❌ MongoDB connection error:', err);
-    process.exit(1);
-  }
-
-  // 7. Start HTTP server
-  app.listen(PORT, () => {
-    console.log(
-      `🚀 Server ready at http://localhost:${PORT}${GRAPHQL_PATH}`
-    );
-  });
+  // 6) Start listening
+  app.listen(PORT, () =>
+    console.log(`🚀 Server ready at http://localhost:${PORT}/graphql`)
+  );
 }
 
-startServer().catch((err) => {
-  console.error('Fatal error starting server:', err);
+start().catch((err) => {
+  console.error('❌ Failed to start server:', err);
   process.exit(1);
 });
